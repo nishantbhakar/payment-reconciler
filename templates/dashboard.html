@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Reconciliation Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        .header {
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            padding: 20px 40px;
+        }
+        .header h1 { font-size: 24px; font-weight: 600; }
+        .header p { color: #94a3b8; margin-top: 4px; font-size: 14px; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 30px 40px; }
+
+        /* Summary Cards */
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 30px; }
+        .card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .card .label { font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+        .card .value { font-size: 32px; font-weight: 700; margin-top: 8px; }
+        .card.green .value { color: #4ade80; }
+        .card.red .value { color: #f87171; }
+        .card.yellow .value { color: #fbbf24; }
+        .card.blue .value { color: #60a5fa; }
+
+        /* Gap Summary */
+        .gap-summary {
+            display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;
+        }
+        .gap-badge {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .gap-badge:hover, .gap-badge.active {
+            border-color: #60a5fa;
+            background: #1e3a5f;
+        }
+        .gap-badge .count {
+            font-weight: 700;
+            font-size: 18px;
+            display: block;
+            margin-top: 4px;
+        }
+
+        /* Table */
+        .table-wrap {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .table-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .table-header h2 { font-size: 16px; }
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            text-align: left;
+            padding: 12px 16px;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #94a3b8;
+            border-bottom: 1px solid #334155;
+            background: #0f172a;
+        }
+        td {
+            padding: 12px 16px;
+            font-size: 14px;
+            border-bottom: 1px solid #1e293b;
+        }
+        tr:hover { background: #334155; }
+
+        /* Gap type badges in table */
+        .type-tag {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .type-tag.cross_month_settlement { background: #3730a3; color: #a5b4fc; }
+        .type-tag.rounding_difference { background: #713f12; color: #fbbf24; }
+        .type-tag.duplicate_settlement { background: #7f1d1d; color: #fca5a5; }
+        .type-tag.orphan_settlement { background: #064e3b; color: #6ee7b7; }
+        .type-tag.unmatched_transaction { background: #4c1d95; color: #c4b5fd; }
+
+        .variance-neg { color: #f87171; }
+        .variance-pos { color: #4ade80; }
+        .variance-zero { color: #94a3b8; }
+
+        .loading { text-align: center; padding: 60px; color: #94a3b8; }
+        .error { text-align: center; padding: 60px; color: #f87171; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Payment Reconciliation Dashboard</h1>
+        <p>January 2025 | Platform Transactions vs Bank Settlements</p>
+    </div>
+
+    <div class="container">
+        <div id="content">
+            <div class="loading">Loading reconciliation data...</div>
+        </div>
+    </div>
+
+    <script>
+        const GAP_LABELS = {
+            cross_month_settlement: "Cross-Month",
+            rounding_difference: "Rounding",
+            duplicate_settlement: "Duplicate",
+            orphan_settlement: "Orphan",
+            unmatched_transaction: "Unmatched Txn"
+        };
+
+        let allData = null;
+        let activeFilter = null;
+
+        async function load() {
+            try {
+                const res = await fetch("/api/reconcile");
+                if (!res.ok) throw new Error("Failed to load data");
+                allData = await res.json();
+                render(allData);
+            } catch (e) {
+                document.getElementById("content").innerHTML =
+                    `<div class="error">Error: ${e.message}. Make sure you've run generate_data.py first.</div>`;
+            }
+        }
+
+        function render(data) {
+            const filtered = activeFilter
+                ? data.discrepancies.filter(d => d.gap_type === activeFilter)
+                : data.discrepancies;
+
+            const totalVariance = data.total_variance;
+
+            document.getElementById("content").innerHTML = `
+                <div class="cards">
+                    <div class="card blue">
+                        <div class="label">Total Transactions</div>
+                        <div class="value">${data.total_transactions}</div>
+                    </div>
+                    <div class="card green">
+                        <div class="label">Matched</div>
+                        <div class="value">${data.matched}</div>
+                    </div>
+                    <div class="card yellow">
+                        <div class="label">Discrepancies</div>
+                        <div class="value">${data.discrepancies.length}</div>
+                    </div>
+                    <div class="card red">
+                        <div class="label">Total Variance</div>
+                        <div class="value">$${Math.abs(totalVariance).toFixed(2)}</div>
+                    </div>
+                    <div class="card yellow">
+                        <div class="label">Rounding Drift (summed)</div>
+                        <div class="value">$${Math.abs(data.rounding_total).toFixed(2)}</div>
+                    </div>
+                </div>
+
+                <div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:24px;">
+                    <h3 style="font-size:14px;margin-bottom:12px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;">Assumptions</h3>
+                    <ul style="color:#cbd5e1;font-size:14px;line-height:1.8;padding-left:20px;">
+                        <li>Each transaction has a unique ID generated by the platform</li>
+                        <li>The bank references the platform's transaction ID when settling</li>
+                        <li>Settlement occurs 1-2 business days after the transaction</li>
+                        <li>All amounts are in a single currency (USD)</li>
+                        <li>Refunds are recorded as negative amounts in the bank feed</li>
+                        <li>Month-end cutoff is midnight UTC on January 31, 2025</li>
+                        <li>No partial settlements - a transaction settles in full or not at all</li>
+                    </ul>
+                </div>
+
+                <div class="gap-summary">
+                    <div class="gap-badge ${!activeFilter ? 'active' : ''}" onclick="setFilter(null)">
+                        All<span class="count">${data.discrepancies.length}</span>
+                    </div>
+                    ${Object.entries(data.summary).map(([type, count]) => `
+                        <div class="gap-badge ${activeFilter === type ? 'active' : ''}" onclick="setFilter('${type}')">
+                            ${GAP_LABELS[type] || type}<span class="count">${count}</span>
+                        </div>
+                    `).join("")}
+                </div>
+
+                <div class="table-wrap">
+                    <div class="table-header">
+                        <h2>Discrepancies${activeFilter ? ' - ' + (GAP_LABELS[activeFilter] || activeFilter) : ''}</h2>
+                        <span style="color:#94a3b8;font-size:13px;">${filtered.length} items</span>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Transaction ID</th>
+                                <th>Platform Amount</th>
+                                <th>Bank Amount</th>
+                                <th>Variance</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${filtered.map(d => `
+                                <tr>
+                                    <td><span class="type-tag ${d.gap_type}">${GAP_LABELS[d.gap_type] || d.gap_type}</span></td>
+                                    <td style="font-family:monospace">${d.transaction_id}</td>
+                                    <td>$${d.platform_amount.toFixed(2)}</td>
+                                    <td>$${Math.abs(d.bank_amount).toFixed(2)}</td>
+                                    <td class="${d.variance > 0 ? 'variance-pos' : d.variance < 0 ? 'variance-neg' : 'variance-zero'}">
+                                        ${d.variance !== 0 ? '$' + d.variance.toFixed(2) : '-'}
+                                    </td>
+                                    <td style="color:#94a3b8;font-size:13px;max-width:300px">${d.details}</td>
+                                </tr>
+                            `).join("")}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function setFilter(type) {
+            activeFilter = type;
+            render(allData);
+        }
+
+        load();
+    </script>
+</body>
+</html>
