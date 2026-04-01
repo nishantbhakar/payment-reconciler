@@ -1,3 +1,4 @@
-streamlit==1.42.0
+flask==3.1.0
 pandas==2.2.3
 pytest==8.3.4
+gunicorn==23.0.0
